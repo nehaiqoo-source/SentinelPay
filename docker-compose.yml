@@ -1,0 +1,22 @@
+# Local development / test database. Not a production deployment.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: sentinelpay-postgres
+    environment:
+      POSTGRES_USER: sentinelpay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinelpay_local_dev}
+      POSTGRES_DB: sentinelpay
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - sentinelpay-pgdata:/var/lib/postgresql/data
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinelpay -d sentinelpay"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  sentinelpay-pgdata:

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SentinelPay Console</title>
+    <link rel="stylesheet" href="/vendor/ag-grid/styles/ag-grid.css" />
+    <link rel="stylesheet" href="/vendor/ag-grid/styles/ag-theme-quartz.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>SentinelPay</h1>
+        <p class="subtitle">AI-to-Commerce policy gateway · operator console</p>
+      </div>
+      <div class="topbar-right">
+        <span id="mode-badge" class="badge" hidden></span>
+        <span id="whoami" class="badge" hidden></span>
+        <button id="logout" type="button" class="btn btn-ghost" hidden>Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="login-panel" class="panel login">
+        <h2>Operator sign-in</h2>
+        <p class="muted">Enter your personal operator key (<code>sp_op_…</code>, issued with <code>npm run operator -- create</code>). It is kept only in this tab's session storage and sent as a Bearer token. Your role decides which controls are available.</p>
+        <form id="login-form" class="row-form">
+          <label class="grow">Operator key <input name="key" type="password" autocomplete="off" required pattern="sp_op_[A-Za-z0-9_\-]{43}" /></label>
+          <button type="submit" class="btn btn-primary">Sign in</button>
+        </form>
+        <p id="login-result" class="form-result" role="status" aria-live="polite"></p>
+      </section>
+
+      <div id="console" hidden>
+        <section class="stats" aria-label="Spending today (UTC)">
+          <div class="stat"><span class="label">Global per-transaction cap</span><span id="stat-per-tx" class="value">–</span></div>
+          <div class="stat"><span class="label">Global daily cap</span><span id="stat-daily" class="value">–</span></div>
+          <div class="stat"><span class="label">Committed today</span><span id="stat-committed" class="value">–</span></div>
+          <div class="stat"><span class="label">Reserved today</span><span id="stat-reserved" class="value">–</span></div>
+          <div class="stat"><span class="label">Remaining today</span><span id="stat-remaining" class="value">–</span></div>
+        </section>
+
+        <div id="approval-banner" class="banner" hidden>
+          <span id="approval-banner-text"></span>
+          <button id="approval-banner-capture" type="button" class="btn btn-primary" hidden>Capture now</button>
+          <button id="approval-banner-dismiss" type="button" class="btn btn-ghost">Dismiss</button>
+        </div>
+
+        <p id="status-line" class="status-line" role="status" aria-live="polite"></p>
+
+        <section class="panel grid-panel">
+          <div class="panel-head">
+            <h2>Transactions</h2>
+            <div class="panel-actions">
+              <label class="inline">Status
+                <select id="status-filter">
+                  <option value="">All</option>
+                  <option>PENDING_APPROVAL</option>
+                  <option>RECONCILE_REQUIRED</option>
+                  <option>BLOCKED</option>
+                  <option>COMPLETED</option>
+                  <option>FAILED</option>
+                  <option>EXPIRED</option>
+                  <option>CANCELLED</option>
+                </select>
+              </label>
+              <button id="refresh" type="button" class="btn btn-ghost">Refresh</button>
+            </div>
+          </div>
+          <div id="tx-grid" class="ag-theme-quartz grid"></div>
+        </section>
+
+        <section class="panel grid-panel">
+          <div class="panel-head">
+            <h2>Agents</h2>
+          </div>
+          <div id="agent-grid" class="ag-theme-quartz grid grid-short"></div>
+          <details id="create-agent" class="create-agent">
+            <summary>Create agent</summary>
+            <form id="agent-form" class="row-form">
+              <label>Agent ID <input name="agentId" required maxlength="64" pattern="[A-Za-z0-9._:\-]+" /></label>
+              <label class="grow">Display name <input name="displayName" required maxlength="100" /></label>
+              <label>Per-tx cap <input name="perTransactionCap" required type="number" min="0.01" step="0.01" value="25.00" /></label>
+              <label>Daily cap <input name="dailyCap" required type="number" min="0.01" step="0.01" value="100.00" /></label>
+              <label>Autonomous limit <input name="autonomousLimit" required type="number" min="0" step="0.01" value="0.00" title="Payments up to this amount skip buyer approval when a vault is configured; 0 = always ask" /></label>
+              <label class="grow">Allowed merchants <input name="allowedMerchants" placeholder="blank = any; comma-separated ids" /></label>
+              <label class="grow">Allowed categories <input name="allowedCategories" placeholder="blank = any; comma-separated ids" /></label>
+              <button type="submit" class="btn btn-primary">Create</button>
+            </form>
+            <div id="new-key" class="new-key" hidden>
+              <p><strong>Agent API key (shown once):</strong></p>
+              <code id="new-key-value"></code>
+            </div>
+          </details>
+        </section>
+
+        <section id="audit-panel" class="panel">
+          <div class="panel-head">
+            <h2>Audit trail</h2>
+            <div class="panel-actions">
+              <span id="chain-status" class="badge"></span>
+              <button id="verify-chain" type="button" class="btn btn-ghost">Verify hash chain</button>
+            </div>
+          </div>
+          <p class="muted small">Tamper-evident, not immutable. The hash chain detects edits, deletions and reordering; signed checkpoints (verified with a public key and an external copy) detect a consistent rewrite up to the newest checkpoint.</p>
+          <p id="chain-head" class="mono small"></p>
+          <div id="audit-grid" class="ag-theme-quartz grid grid-short"></div>
+        </section>
+
+        <section class="panel">
+          <details>
+            <summary>Simulate an agent purchase</summary>
+            <p class="muted small">Uses an agent's own API key: the console never pays on an agent's behalf with operator credentials.</p>
+            <form id="simulate-form" class="row-form">
+              <label class="grow">Agent API key <input name="agentKey" type="password" autocomplete="off" required /></label>
+              <label>Merchant ID <input name="merchantId" required value="acme-store" /></label>
+              <label>Category <input name="category" required value="electronics" /></label>
+              <label class="grow">Description <input name="description" required maxlength="127" value="Wireless mouse" /></label>
+              <label>Amount (USD) <input name="amount" required type="number" min="0.01" step="0.01" value="19.99" /></label>
+              <button type="submit" class="btn btn-primary">Submit</button>
+            </form>
+          </details>
+        </section>
+      </div>
+    </main>
+
+    <script src="/vendor/ag-grid/dist/ag-grid-community.min.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
