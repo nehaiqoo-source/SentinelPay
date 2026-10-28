@@ -11,7 +11,7 @@ import {
   type TransactionRecord,
   type TransactionStatus,
 } from "../models/types.js";
-import { appendAudit } from "./audit.js";
+import { appendAudit, type AuditInput } from "./audit.js";
 import { formatCents, type AgentLimits } from "./policy.js";
 
 /** Serializes budget reservations across every process sharing the database. */
@@ -237,6 +237,17 @@ export class LedgerStore {
   async findAgentByApiKey(apiKey: string): Promise<Agent | null> {
     const { rows } = await this.db.query<AgentRow>("SELECT * FROM agents WHERE api_key_hash = $1", [hashApiKey(apiKey)]);
     return rows[0] ? toAgent(rows[0]) : null;
+  }
+
+  /** Loads an agent's identity and limits by id (the guard re-reads them under its lock). */
+  async getAgent(agentId: string): Promise<Agent | null> {
+    const { rows } = await this.db.query<AgentRow>("SELECT * FROM agents WHERE id = $1", [agentId]);
+    return rows[0] ? toAgent(rows[0]) : null;
+  }
+
+  /** Appends one audit event in its own transaction. */
+  async audit(input: AuditInput): Promise<void> {
+    await withTransaction(this.db, (client) => appendAudit(client, input));
   }
 
   async getAgentPolicy(agentId: string): Promise<AgentPolicy | null> {

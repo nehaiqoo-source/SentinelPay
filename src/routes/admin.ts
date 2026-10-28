@@ -3,6 +3,7 @@ import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 import { authenticateOperator, rejectUnauthenticatedOperator, requirePermission, type OperatorLocals } from "../auth/auth.js";
 import { hasPermission, OperatorError, PERMISSIONS, type OperatorStore, type Permission } from "../auth/operators.js";
+import { AssistantError, type AssistantService } from "../assistant/assistantService.js";
 import type { Db } from "../db/pool.js";
 import { listAudit } from "../engine/audit.js";
 import { createCheckpoint, verifyAuditIntegrity, type CheckpointSigner } from "../engine/auditCheckpoints.js";
@@ -66,18 +67,36 @@ const auditQuerySchema = z.strictObject({
   transactionId: z.uuid().optional(),
 });
 
+const assistantMessageSchema = z.strictObject({
+  agentId: identifierSchema,
+  message: z.string().trim().min(1).max(2000),
+  conversationId: z.uuid().optional(),
+});
+
 export interface AdminRouterOptions {
   db: Db;
   store: LedgerStore;
   guard: SentinelGuard;
   operators: OperatorStore;
+  assistant: AssistantService;
   global: GlobalLimits;
   authFailureLimitPerMinute: number;
+  assistantRateLimitPerMinute: number;
   audit: { signer: CheckpointSigner | null; externalFile: string | null };
 }
 
 /** Operator API: every route requires a named operator key and a role-based permission. */
-export function createAdminRouter({ db, store, guard, operators, global, authFailureLimitPerMinute, audit }: AdminRouterOptions): Router {
+export function createAdminRouter({
+  db,
+  store,
+  guard,
+  operators,
+  assistant,
+  global,
+  authFailureLimitPerMinute,
+  assistantRateLimitPerMinute,
+  audit,
+}: AdminRouterOptions): Router {
   const router = Router();
 
   // Authenticate first, then throttle ONLY requests that failed authentication, then reject them.
@@ -269,6 +288,40 @@ export function createAdminRouter({ db, store, guard, operators, global, authFai
     }
     const checkpoint = await createCheckpoint(db, audit.signer, audit.externalFile);
     res.status(checkpoint ? 201 : 200).json({ checkpoint, message: checkpoint ? "Checkpoint signed" : "Chain head already checkpointed (or empty)" });
+  });
+
+  // ----- AI assistant -----------------------------------------------------------
+
+  router.get("/assistant/status", can("assistant:use"), (_req, res) => {
+    res.json({ available: assistant.available, model: assistant.modelName });
+  });
+
+  // Each message can make several model calls; limit per operator to protect the model quota.
+  const assistantLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: assistantRateLimitPerMinute,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (_req, res) => `operator:${(res.locals as OperatorLocals).operator.id}`,
+    message: { error: "RATE_LIMITED", message: "Too many assistant messages; wait a minute" },
+  });
+
+  router.post("/assistant/messages", can("assistant:use"), assistantLimiter, async (req, res) => {
+    const { operator } = res.locals as OperatorLocals;
+    const parsed = assistantMessageSchema.safeParse(req.body);
+    if (!parsed.success) return invalidRequest(res, parsed.error);
+    try {
+      const reply = await assistant.handleMessage({
+        operatorId: operator.id,
+        agentId: parsed.data.agentId,
+        message: parsed.data.message,
+        ...(parsed.data.conversationId ? { conversationId: parsed.data.conversationId } : {}),
+      });
+      res.status(reply.status === "MODEL_ERROR" ? 502 : 200).json(reply);
+    } catch (error) {
+      if (error instanceof AssistantError) return void res.status(error.statusCode).json({ error: error.code, message: error.message });
+      throw error;
+    }
   });
 
   // ----- operator management --------------------------------------------------

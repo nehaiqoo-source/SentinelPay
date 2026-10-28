@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../../src/app.js";
+import { AssistantService } from "../../src/assistant/assistantService.js";
 import { OperatorStore } from "../../src/auth/operators.js";
 import { loadConfig, type Config } from "../../src/config/env.js";
 import { ensureAppRole } from "../../src/db/appRole.js";
@@ -155,7 +156,12 @@ export async function startTestApp(
     pendingApprovalTtlMs: config.pendingApprovalTtlMs,
   });
   const adminKey = options.adminKey ?? (await bootstrapOperator(db, `test-admin-${process.pid}-${++adminCounter}`, "ADMIN"));
-  const app = createApp({ config, db, store, guard, operators, auditSigner: options.auditSigner ?? null });
+  const assistant = new AssistantService({
+    store,
+    guard,
+    model: config.assistant.geminiApiKey ? { apiKey: config.assistant.geminiApiKey, model: config.assistant.model } : null,
+  });
+  const app = createApp({ config, db, store, guard, operators, assistant, auditSigner: options.auditSigner ?? null });
   const server: Server = await new Promise((resolve) => {
     const s = app.listen(0, "127.0.0.1", () => resolve(s));
   });

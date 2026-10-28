@@ -94,6 +94,8 @@ describe("role-based authorization", () => {
     ["POST", "/api/admin/agents/agent-x/unfreeze", undefined, ["ADMIN"]],
     ["GET", "/api/admin/operators", undefined, ["ADMIN"]],
     ["POST", "/api/admin/orders/NOTREAL123/capture", undefined, ["OPERATOR", "ADMIN"]],
+    ["GET", "/api/admin/assistant/status", undefined, ["OPERATOR", "ADMIN"]],
+    ["POST", "/api/admin/assistant/messages", { agentId: "agent-x", message: "hi" }, ["OPERATOR", "ADMIN"]],
   ];
 
   for (const [method, path, body, allowed] of matrix) {

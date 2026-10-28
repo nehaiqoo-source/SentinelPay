@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { createApp } from "./app.js";
+import { AssistantService } from "./assistant/assistantService.js";
 import { OperatorStore } from "./auth/operators.js";
 import { loadConfig, loadDotEnv } from "./config/env.js";
 import { inspectConnectedRole } from "./db/appRole.js";
@@ -65,10 +66,17 @@ async function start(): Promise<void> {
   await runSweep();
   const sweeper = setInterval(runSweep, config.sweepIntervalMs);
 
-  const app = createApp({ config, db, store, guard, operators, auditSigner });
+  const assistant = new AssistantService({
+    store,
+    guard,
+    model: config.assistant.geminiApiKey ? { apiKey: config.assistant.geminiApiKey, model: config.assistant.model } : null,
+  });
+  if (!assistant.available) console.warn("WARNING: GEMINI_API_KEY not set; the in-app AI assistant is disabled");
+
+  const app = createApp({ config, db, store, guard, operators, assistant, auditSigner });
   const server = app.listen(config.port, () => {
     console.log(
-      `SentinelPay listening on port ${config.port} (${config.nodeEnv}, PayPal: ${config.paypal.baseUrl}, vault: ${gateway.executionMode === "AUTONOMOUS" ? "configured" : "none"}, db role: ${role.user})`,
+      `SentinelPay listening on port ${config.port} (${config.nodeEnv}, PayPal: ${config.paypal.baseUrl}, vault: ${gateway.executionMode === "AUTONOMOUS" ? "configured" : "none"}, db role: ${role.user}, assistant: ${assistant.available ? assistant.modelName : "disabled"})`,
     );
   });
   installShutdown(server, db, sweeper);

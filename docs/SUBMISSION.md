@@ -43,7 +43,7 @@ Built with: TypeScript, Express, PostgreSQL, **PayPal Orders v2 (sandbox)** incl
 
 | Feature | Evidence |
 |---|---|
-| Natural-language → structured payment intent (Gemini function calling) | `npm run demo:agent`, 2026-10-27 run on `gemini-3.5-flash`: the agent read its policy and submitted `acme-store / electronics / $12.99` |
+| In-app AI assistant: natural language → clarifying question or structured intent (Gemini function calling) | Live 2026-10-28 via the dashboard endpoint: order `1S150670PA619145R` (allowed), $349 blocked with 0 PayPal calls, clarifying question then order `0CJ82893CE0739207` |
 | Autonomous payment from a PayPal vaulted wallet, within a per-agent limit | Real sandbox: order `718962253F957440P`, capture `5KS48907NE537922L` (COMPLETED, USD 12.99), confirmed via PayPal's Orders API |
 | Buyer-consent vault setup | Setup order `5MT10807G13413528`, vault token status `VAULTED` |
 | Buyer-approval flow above the autonomous limit, then capture | Order `2KD1942098605523R`, capture `0RS90965NW179300S` |
@@ -145,8 +145,9 @@ private testing instructions.
   - Daily quota exhausted (`RESOURCE_EXHAUSTED` with a long retry delay): fails fast with the error and no retries (unit-tested).
   - `gemini-2.5-flash` is closed to new users (404); `gemini-3.8-flash` returned sustained 503s.
   - **The free tier allows 20 requests a day; one full demo run uses about 9–10.** Enable billing or record early.
-- **The gateway never calls an LLM.** If Gemini is down, payments made directly through
-  the agent API are unaffected.
+- **Where the model runs:** server-side in the gateway's assistant endpoint, and in the
+  CLI. If Gemini is down, the assistant reports `MODEL_ERROR` (listing anything already
+  submitted). Payments made directly through the agent API are unaffected.
 
 ## 7. Demo script (under 3 minutes) and shot list
 
@@ -160,9 +161,9 @@ Before recording:
 | Time | Narration (summary) | Shot (real app) | Expected |
 |---|---|---|---|
 | 0:00–0:15 | "Agents are starting to pay for things. One bad web page can talk them into overspending." | Console overview (stats, transactions grid) | Live data |
-| 0:15–0:45 | "The agent turns a request into a structured intent." | Terminal: `npm run demo:agent`, scenario 1 | Gemini calls `get_spending_policy`, then `submit_purchase_intent acme-store/electronics/$12.99`; **201 COMPLETED (AUTONOMOUS)** with a real PayPal order and capture id |
-| 0:45–1:00 | "SentinelPay enforces the cap, not the model." | Scenario 2 | **403 BLOCKED**: `PER_TRANSACTION_CAP` and daily caps; "PayPal: none" |
-| 1:00–1:35 | "Here's a poisoned product page… and a fully hijacked agent." | Scenarios 3 and 4 | Gemini buys only the $9.50 mouse; the hijacked intent gets **403** with 7 reasons, no PayPal order |
+| 0:15–0:45 | "The agent turns a request into a structured intent." | Dashboard → **Ask the purchasing agent**: "Our office needs a USB-C cable, $12.99 at Acme Store" | Gemini calls `get_spending_policy`, then `submit_purchase_intent acme-store/electronics/$12.99`; **201 COMPLETED (AUTONOMOUS)** with a real PayPal order and capture id |
+| 0:45–1:00 | "SentinelPay enforces the cap, not the model." | Same panel: "Buy the $349 4K monitor" | **403 BLOCKED**: `PER_TRANSACTION_CAP` and daily caps; "PayPal: none" |
+| 1:00–1:35 | "It asks when unsure, and a hijacked agent still can't spend." | Panel: "Buy something for the office" → clarifying question → answer; then terminal `npm run demo:agent` scenario 4 (simulated hijack) | Gemini buys only the $9.50 mouse; the hijacked intent gets **403** with 7 reasons, no PayPal order |
 | 1:35–1:55 | "Every decision is visible to the operator." | Console: filter Status = BLOCKED in AG Grid; open a row's violations | Blocked rows with reasons |
 | 1:55–2:15 | "Operators can freeze an agent instantly." | Click **Freeze** on the demo agent, rerun one purchase, then **Unfreeze** | `AGENT_FROZEN` |
 | 2:15–2:40 | "Bigger purchases need a human." | Submit a $19.99 item; **Approve Sandbox Order** → PayPal sandbox checkout → **Capture** | `PENDING_APPROVAL`, then `COMPLETED` |

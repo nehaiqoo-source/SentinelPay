@@ -21,6 +21,8 @@ export const PERMISSIONS = {
   "audit:read": ["AUDITOR", "ADMIN"],
   "audit:checkpoint": ["AUDITOR", "ADMIN"],
   "operators:manage": ["ADMIN"],
+  /** Talk to the in-app AI purchasing assistant, which submits intents as a chosen agent. */
+  "assistant:use": ["OPERATOR", "ADMIN"],
 } as const satisfies Record<string, readonly OperatorRole[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

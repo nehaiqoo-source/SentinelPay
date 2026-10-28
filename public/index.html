@@ -49,6 +49,26 @@
 
         <p id="status-line" class="status-line" role="status" aria-live="polite"></p>
 
+        <section id="assistant-panel" class="panel" hidden>
+          <div class="panel-head">
+            <h2>Ask the purchasing agent</h2>
+            <div class="panel-actions">
+              <span id="assistant-model" class="badge"></span>
+              <button id="assistant-reset" type="button" class="btn btn-ghost">New conversation</button>
+            </div>
+          </div>
+          <p class="muted small">
+            Gemini turns your request into a structured purchase intent and submits it as the selected agent.
+            SentinelPay decides independently. The model can't change the agent's limits, and nothing it says authorizes a payment.
+          </p>
+          <div id="assistant-log" class="assistant-log" aria-live="polite"></div>
+          <form id="assistant-form" class="row-form">
+            <label>Agent <select id="assistant-agent" name="agentId" required></select></label>
+            <label class="grow">Request <textarea id="assistant-input" name="message" rows="2" maxlength="2000" required placeholder="e.g. Buy a USB-C charging cable for the office, about $13 at Acme Store"></textarea></label>
+            <button id="assistant-send" type="submit" class="btn btn-primary">Send</button>
+          </form>
+        </section>
+
         <section class="panel grid-panel">
           <div class="panel-head">
             <h2>Transactions</h2>

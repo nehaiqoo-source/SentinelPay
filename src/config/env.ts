@@ -63,6 +63,12 @@ const envSchema = z.object({
     .preprocess(blankToUndefined, z.url().optional())
     .transform((url) => url?.replace(/\/+$/, "")),
 
+  /** In-app AI assistant (Google Gemini). Without a key the assistant endpoint reports itself unavailable. */
+  GEMINI_API_KEY: z.preprocess(blankToUndefined, z.string().trim().optional()),
+  GEMINI_MODEL: z.preprocess(blankToUndefined, z.string().trim().regex(/^[a-z0-9.-]{1,64}$/, "must be a Gemini model id").default("gemini-3.5-flash")),
+  /** Assistant messages per operator per minute (each message can make several model calls). */
+  ASSISTANT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+
   /** Global ceilings; no agent policy may exceed them. */
   DAILY_SPENDING_CAP: moneyString.default(100),
   PER_TRANSACTION_CAP: moneyString.default(25),
@@ -90,6 +96,7 @@ export interface Config {
     vault: { type: "PAYPAL_VAULT_ID" | "BILLING_AGREEMENT"; token: string } | null;
   };
   appBaseUrl: string;
+  assistant: { geminiApiKey: string | null; model: string; rateLimitPerMinute: number };
   globalPerTransactionCapCents: number;
   globalDailyCapCents: number;
   pendingApprovalTtlMs: number;
@@ -184,6 +191,12 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
           : null,
     },
     appBaseUrl: env.APP_BASE_URL ?? `http://localhost:${env.PORT}`,
+    assistant: {
+      // A template placeholder means "not configured", never a key to send to Google.
+      geminiApiKey: env.GEMINI_API_KEY && !PLACEHOLDER_SECRET.test(env.GEMINI_API_KEY) ? env.GEMINI_API_KEY : null,
+      model: env.GEMINI_MODEL,
+      rateLimitPerMinute: env.ASSISTANT_RATE_LIMIT_PER_MINUTE,
+    },
     globalPerTransactionCapCents: Math.round(env.PER_TRANSACTION_CAP * 100),
     globalDailyCapCents: Math.round(env.DAILY_SPENDING_CAP * 100),
     pendingApprovalTtlMs: env.PENDING_APPROVAL_TTL_MINUTES * 60_000,

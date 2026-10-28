@@ -3,6 +3,7 @@ import cors from "cors";
 import express, { type ErrorRequestHandler, type RequestHandler } from "express";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
+import type { AssistantService } from "./assistant/assistantService.js";
 import type { OperatorStore } from "./auth/operators.js";
 import type { Config } from "./config/env.js";
 import type { Db } from "./db/pool.js";
@@ -25,10 +26,11 @@ export interface AppDeps {
   store: LedgerStore;
   guard: SentinelGuard;
   operators: OperatorStore;
+  assistant: AssistantService;
   auditSigner: CheckpointSigner | null;
 }
 
-export function createApp({ config, db, store, guard, operators, auditSigner }: AppDeps): express.Express {
+export function createApp({ config, db, store, guard, operators, assistant, auditSigner }: AppDeps): express.Express {
   const app = express();
   const startedAt = Date.now();
 
@@ -94,8 +96,10 @@ export function createApp({ config, db, store, guard, operators, auditSigner }: 
       store,
       guard,
       operators,
+      assistant,
       global: { perTransactionCapCents: config.globalPerTransactionCapCents, dailyCapCents: config.globalDailyCapCents },
       authFailureLimitPerMinute: config.authFailureLimitPerMinute,
+      assistantRateLimitPerMinute: config.assistant.rateLimitPerMinute,
       audit: { signer: auditSigner, externalFile: config.auditCheckpointFile },
     }),
   );

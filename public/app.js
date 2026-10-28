@@ -284,9 +284,133 @@ async function refreshAll() {
     $("stat-remaining").textContent = `$${s.remainingToday}`;
     txGrid.setGridOption("rowData", tx.body.transactions);
   }
-  if (agents.ok) agentGrid.setGridOption("rowData", agents.body.agents);
+  if (agents.ok) {
+    agentGrid.setGridOption("rowData", agents.body.agents);
+    populateAssistantAgents(agents.body.agents);
+  }
   if (audit.ok) auditGrid.setGridOption("rowData", audit.body.events);
 }
+
+// ---------------------------------------------------------------------------
+// AI assistant (server-side Gemini; this page only sends text and renders results)
+// ---------------------------------------------------------------------------
+
+let conversationId = null;
+
+function decisionTone(decision) {
+  if (decision === "COMPLETED") return "ok";
+  if (decision === "PENDING_APPROVAL" || decision === "CAPTURE_PENDING") return "warn";
+  return "bad";
+}
+
+function logMessage(kind, meta, children) {
+  const node = el("div", { className: `msg msg-${kind}` }, [el("span", { className: "msg-meta", textContent: meta }), ...children]);
+  $("assistant-log").append(node);
+  node.scrollIntoView({ block: "nearest" });
+  return node;
+}
+
+function renderToolCall(call) {
+  const r = call.result ?? {};
+  if (call.tool === "get_spending_policy") {
+    return el("div", {
+      className: "decision",
+      textContent: `Checked policy: per-transaction $${r.perTransactionCap}, daily $${r.dailyCap}, autonomous ≤ $${r.autonomousLimit}, merchants ${r.allowedMerchants === null ? "any" : (r.allowedMerchants ?? []).join(", ")}`,
+    });
+  }
+  if (call.tool !== "submit_purchase_intent") return null;
+  const a = call.args ?? {};
+  if (r.error === "SUBMISSION_LIMIT") return el("div", { className: "decision bad", textContent: `Not submitted: ${r.message}` });
+  const box = el("div", { className: `decision ${decisionTone(r.decision)}` });
+  box.append(el("div", { textContent: `Model's intent: ${a.merchantId} / ${a.category} / $${a.amountUsd}: ${a.description}` }));
+  box.append(
+    el("div", {}, [
+      document.createTextNode("SentinelPay: "),
+      badge(String(r.decision ?? "ERROR").replace(/_/g, " "), STATUS_TONE[r.decision]),
+      document.createTextNode(
+        ` HTTP ${r.httpStatus}${r.mode ? ` · ${r.mode}` : ""}${r.orderId ? ` · PayPal order ${r.orderId}` : ""}${r.captureId ? ` · capture ${r.captureId}` : ""}`,
+      ),
+    ]),
+  );
+  for (const v of r.violations ?? []) box.append(el("div", { textContent: `✗ ${v.code}: ${v.message}` }));
+  if (r.validationIssues) box.append(el("div", { textContent: `✗ Invalid intent, rejected before policy: ${JSON.stringify(r.validationIssues)}` }));
+  if (r.approvalRequired) box.append(el("div", { textContent: "Needs buyer approval: use Approve Sandbox Order in the Transactions grid, then Capture." }));
+  return box;
+}
+
+function paymentSummary(reply) {
+  if (reply.intentsSubmitted === 0) return "No payment was made.";
+  const parts = [];
+  if (reply.paymentsCaptured) parts.push(`${reply.paymentsCaptured} payment(s) captured`);
+  if (reply.awaitingApproval) parts.push(`${reply.awaitingApproval} awaiting buyer approval (no money moved yet)`);
+  const blocked = reply.intentsSubmitted - reply.paymentsCaptured - reply.awaitingApproval;
+  if (blocked) parts.push(`${blocked} not paid (blocked or failed)`);
+  return `${parts.join("; ")}.`;
+}
+
+function resetConversation() {
+  conversationId = null;
+  $("assistant-log").replaceChildren();
+}
+
+async function sendAssistantMessage(event) {
+  event.preventDefault();
+  const message = $("assistant-input").value.trim();
+  const agentId = $("assistant-agent").value;
+  if (!message || !agentId) return;
+  const send = $("assistant-send");
+  send.disabled = true;
+  logMessage("user", `You → ${agentId}`, [document.createTextNode(message)]);
+  $("assistant-input").value = "";
+  const thinking = logMessage("agent", "Agent", [document.createTextNode("Thinking…")]);
+  try {
+    const { ok, body } = await api("POST", "/api/admin/assistant/messages", { agentId, message, ...(conversationId ? { conversationId } : {}) });
+    thinking.remove();
+    if (!ok && !body.status) {
+      logMessage("error", "Assistant", [document.createTextNode(`${body.message ?? body.error ?? "Request failed"}. No payment was made.`)]);
+      if (body.error === "CONVERSATION_NOT_FOUND" || body.error === "CONVERSATION_LIMIT") resetConversation();
+      return;
+    }
+    conversationId = body.status === "MODEL_ERROR" ? null : body.conversationId;
+    const steps = (body.toolCalls ?? []).map(renderToolCall).filter(Boolean);
+    if (body.status === "QUESTION") {
+      logMessage("question", `Agent asks (${body.model})`, [...steps, document.createTextNode(body.text)]);
+    } else if (body.status === "MODEL_ERROR") {
+      logMessage("error", `Agent (${body.model})`, [...steps, document.createTextNode(`${body.text} ${body.error?.message ?? ""}\n${paymentSummary(body)}`)]);
+    } else {
+      logMessage("agent", `Agent (${body.model})`, [...steps, document.createTextNode(`${body.text}\n\n${paymentSummary(body)}`)]);
+    }
+  } catch (error) {
+    thinking.remove();
+    logMessage("error", "Assistant", [document.createTextNode(`Request failed: ${error.message}`)]);
+  } finally {
+    send.disabled = false;
+    await refreshAll();
+  }
+}
+
+function populateAssistantAgents(agents) {
+  const select = $("assistant-agent");
+  const current = select.value;
+  select.replaceChildren(
+    ...agents.map((a) => el("option", { value: a.agentId, textContent: `${a.agentId}${a.frozen ? " (frozen)" : ""}` })),
+  );
+  if (agents.some((a) => a.agentId === current)) select.value = current;
+}
+
+async function initAssistant() {
+  $("assistant-panel").hidden = !can("assistant:use");
+  if (!can("assistant:use")) return;
+  const { ok, body } = await api("GET", "/api/admin/assistant/status");
+  const available = ok && body.available;
+  $("assistant-model").textContent = available ? `Gemini · ${body.model}` : "AI unavailable (GEMINI_API_KEY not set)";
+  $("assistant-model").className = `badge ${available ? "ok" : "bad"}`;
+  $("assistant-send").disabled = !available;
+}
+
+$("assistant-form").addEventListener("submit", sendAssistantMessage);
+$("assistant-reset").addEventListener("click", resetConversation);
+$("assistant-agent").addEventListener("change", resetConversation);
 
 // ---------------------------------------------------------------------------
 // Session lifecycle
@@ -324,6 +448,7 @@ async function signIn(key) {
   $("whoami").hidden = false;
   $("audit-panel").hidden = !can("audit:read");
   $("create-agent").hidden = !can("agents:manage");
+  await initAssistant();
   showConsole(true);
   await refreshAll();
   if (!poller) poller = setInterval(refreshAll, POLL_INTERVAL_MS);

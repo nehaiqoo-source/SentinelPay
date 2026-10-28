@@ -43,6 +43,21 @@ never printed. `.secrets/` is git-ignored.
 The server refuses to start if the database is unreachable, migrations are pending,
 or configuration is invalid (including any PayPal host other than the sandbox).
 
+## AI purchasing assistant (in the dashboard)
+
+Start the gateway with `GEMINI_API_KEY` set (server-side only), sign in as an OPERATOR or
+ADMIN, and use **Ask the purchasing agent**:
+1. Pick an agent and type a request in plain language.
+2. Gemini checks the agent's policy, asks a clarifying question if the item, price or
+   merchant is missing, and submits a structured purchase intent.
+3. SentinelPay decides with the same code path as the agent API. The panel shows the
+   model's intent, SentinelPay's decision and violations, and any real PayPal order and
+   capture ids.
+
+Conversations are kept on the server, bound to the operator and the agent, and each
+message is audited. The model never sees any credential. If Gemini is unavailable or out
+of quota, the reply says so and states exactly what was (or wasn't) paid.
+
 ## Run the demo (Gemini agent + PayPal sandbox)
 
 ```bash
@@ -102,9 +117,12 @@ Permissions by role are listed in `docs/SECURITY.md`.
 
 ## AI usage and disclosure
 
-- **Runtime AI:** the demo purchasing agent uses Google Gemini (function calling) to turn
-  requests into structured payment intents. SentinelPay itself makes no LLM calls; every
-  payment decision is deterministic server-side policy.
+- **Runtime AI:** the purchasing agent uses Google Gemini (function calling) to turn
+  requests into structured payment intents or clarifying questions. It runs in the
+  gateway's in-app assistant (`POST /api/admin/assistant/messages`) and in the
+  `npm run demo:agent` CLI.
+- **Not decided by the model:** whether a payment is allowed. That is always
+  deterministic server-side policy, which the model can't change.
 - **Development:** this codebase was written with the help of an AI coding assistant
   (Claude Code).
 

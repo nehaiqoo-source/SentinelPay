@@ -100,6 +100,7 @@ checks: each key control was temporarily broken to confirm its tests then fail.
 | Create agents, change policy, rotate agent keys | | | | ✓ |
 | Read and verify the audit log; sign checkpoints | | ✓ | | ✓ |
 | Manage operators | | | | ✓ |
+| Use the AI assistant (`assistant:use`) | | | ✓ | ✓ |
 
 Every denied credential (`AUTH_FAILED`, with reason and key prefix) and every denied
 permission (`PERMISSION_DENIED`) is written to the audit log. Privileged actions are
@@ -193,3 +194,46 @@ Implementation notes:
 - **Audit log is tamper-evident, not immutable** (see Phase 4).
 - **No webhooks or refunds** (see `docs/PAYPAL_INTEGRATION.md`).
 - **TLS is terminated by a reverse proxy**; the app itself serves plain HTTP behind it.
+
+
+---
+
+# Phase 7: in-app AI assistant
+
+- **Endpoint:** `POST /api/admin/assistant/messages`. It needs an operator key with
+  `assistant:use` (OPERATOR or ADMIN) and has its own per-operator rate limit.
+- **Model:** runs server-side (Gemini key from the server environment). The browser gets
+  only an opaque conversation id.
+- **Same code path as the agent API:** intents go through `transactionRequestSchema` and
+  `SentinelGuard.submit`, so caps, allowlists, freeze state, injection screening,
+  idempotency (a server-chosen `assistant-<uuid>` request id) and the buyer-approval
+  requirement apply unchanged.
+- **No credentials for the model:** it never holds an agent, operator or PayPal key.
+- **Bounded per message:** at most 2 purchase submissions and 6 model turns. A
+  conversation is capped at 12 messages and expires after 30 minutes of inactivity.
+- **Bound to its owner:** a conversation belongs to the operator and agent that started
+  it; anyone else gets 404.
+- **Audited:** every message records an `ASSISTANT_MESSAGE` event with the operator,
+  agent, status and resulting transaction ids. The request text isn't stored.
+- **Failures are reported honestly:** if the model is unavailable, over quota or returns
+  nothing, the reply is `MODEL_ERROR` and still lists any purchase already submitted in
+  that message. Short per-minute limits (up to 60s) are waited out; daily quotas fail fast.
+
+Tests: `test/integration/assistant.test.ts` (19), with a scripted Gemini stub and the
+PayPal mock. Mutation check: removing the permission check fails tests in two suites.
+
+**Live evidence (2026-10-28, real Gemini `gemini-3.5-flash` and real PayPal sandbox):**
+
+| Request | Outcome | PayPal create calls |
+|---|---|---|
+| Allowed | Order `1S150670PA619145R`, capture `2YL76273R2894791V`, USD 12.99 | 1 |
+| Overspend | `BLOCKED` | 0 |
+| Injected listing | Model ignored the gift-card instruction and bought the $9.50 mouse: `063711906B627191V` | 1 |
+| Vague request | Clarifying question | 0 |
+| Answer to the question | `0CJ82893CE0739207`, USD 4.50 | 1 |
+
+All three orders were confirmed via PayPal's Orders API, and the ledger matches.
+
+**Limitation:** conversation state is in process memory. A restart ends open
+conversations (transactions and audit are persisted), and with several instances a
+conversation is pinned to the one that started it.

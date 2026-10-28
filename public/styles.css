@@ -309,3 +309,82 @@ details > summary {
   display: grid;
   gap: 16px;
 }
+
+.assistant-log {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.assistant-log:empty {
+  display: none;
+}
+
+.msg {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg-user {
+  background: var(--neutral-bg);
+  justify-self: end;
+  max-width: 85%;
+}
+
+.msg-agent {
+  background: var(--surface);
+}
+
+.msg-question {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.msg-error {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+
+.msg-meta {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.decision {
+  border-left: 3px solid var(--border);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.decision.ok {
+  border-left-color: var(--ok);
+}
+
+.decision.warn {
+  border-left-color: var(--warn);
+}
+
+.decision.bad {
+  border-left-color: var(--bad);
+}
+
+.decision code {
+  font-size: 12px;
+}
+
+.row-form textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  resize: vertical;
+}
